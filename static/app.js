@@ -264,32 +264,8 @@ async function uploadCSV() {
 }
 
 function trackUploadProgress(jobId) {
-    const eventSource = new EventSource(`/api/upload/${jobId}/stream`);
-
-    eventSource.onmessage = (event) => {
-        const data = JSON.parse(event.data);
-
-        if (data.status === 'completed') {
-            eventSource.close();
-            updateProgress(100, 'Import complete!');
-            showUploadResult(true, `Successfully imported ${data.created + data.updated} products (Created: ${data.created}, Updated: ${data.updated})`);
-            document.getElementById('upload-btn').disabled = false;
-            loadProducts(1);
-        } else if (data.status === 'failed') {
-            eventSource.close();
-            showUploadResult(false, `Import failed: ${data.error}`);
-            document.getElementById('upload-btn').disabled = false;
-        } else {
-            const percent = Math.round((data.processed / data.total) * 100);
-            updateProgress(percent, `Processing: ${data.processed.toLocaleString()} / ${data.total.toLocaleString()} rows`);
-        }
-    };
-
-    eventSource.onerror = () => {
-        eventSource.close();
-        // Fall back to polling
-        pollUploadProgress(jobId);
-    };
+    // Use polling only - no SSE to avoid timeout issues
+    pollUploadProgress(jobId);
 }
 
 async function pollUploadProgress(jobId) {
@@ -309,7 +285,8 @@ async function pollUploadProgress(jobId) {
                 showUploadResult(false, `Import failed`);
                 document.getElementById('upload-btn').disabled = false;
             } else if (data.total_rows > 0) {
-                const percent = Math.round((data.processed_rows / data.total_rows) * 100);
+                // Map processing to 30-100% range (upload already used 0-30%)
+                const percent = 30 + Math.round((data.processed_rows / data.total_rows) * 70);
                 updateProgress(percent, `Processing: ${data.processed_rows.toLocaleString()} / ${data.total_rows.toLocaleString()} rows`);
             }
         } catch (error) {
