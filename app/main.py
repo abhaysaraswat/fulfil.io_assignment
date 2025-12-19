@@ -3,10 +3,12 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from app.api.products import router as products_router
+from app.api.upload import router as upload_router
 from app.database import engine, Base
-from app.models import Product  # noqa: F401 - Import to register model
+from app.models import Product, UploadJob  # noqa: F401 - Import to register models
 
 
 @asynccontextmanager
@@ -32,11 +34,22 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Mount static files
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
 # Include routers
 app.include_router(products_router)
+app.include_router(upload_router)
 
 
 @app.get("/health")
 async def health_check():
     """Health check endpoint."""
     return {"status": "healthy"}
+
+
+@app.get("/")
+async def root():
+    """Redirect to static frontend."""
+    from fastapi.responses import FileResponse
+    return FileResponse("static/index.html")

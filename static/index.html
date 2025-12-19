@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Product Importer</title>
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Product Importer</h1>
+            <p class="subtitle">Manage products and import from CSV files</p>
+        </header>
+
+        <nav class="tabs">
+            <button class="tab active" data-tab="products">Products</button>
+            <button class="tab" data-tab="upload">CSV Upload</button>
+            <button class="tab" data-tab="webhooks">Webhooks</button>
+        </nav>
+
+        <!-- Products Tab -->
+        <div id="products-tab" class="tab-content active">
+            <div class="toolbar">
+                <div class="search-filters">
+                    <input type="text" id="search" placeholder="Search SKU or Name...">
+                    <label>
+                        <input type="checkbox" id="filter-active" checked> Active Only
+                    </label>
+                </div>
+                <div class="actions">
+                    <button class="btn btn-primary" onclick="openProductModal()">+ New Product</button>
+                    <button class="btn btn-danger" onclick="confirmBulkDelete()">Delete All</button>
+                </div>
+            </div>
+
+            <div class="table-container">
+                <table id="products-table">
+                    <thead>
+                        <tr>
+                            <th>SKU</th>
+                            <th>Name</th>
+                            <th>Description</th>
+                            <th>Active</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="products-tbody">
+                        <tr><td colspan="5" class="loading">Loading...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="pagination" id="pagination"></div>
+        </div>
+
+        <!-- Upload Tab -->
+        <div id="upload-tab" class="tab-content">
+            <div class="upload-section">
+                <h2>Upload CSV File</h2>
+                <p class="help-text">CSV format: name, sku, description</p>
+
+                <div class="file-upload">
+                    <input type="file" id="csv-file" accept=".csv" onchange="handleFileSelect(event)">
+                    <label for="csv-file" class="file-label">
+                        <span id="file-name">Choose CSV file...</span>
+                    </label>
+                    <button id="upload-btn" class="btn btn-primary" onclick="uploadCSV()" disabled>Upload</button>
+                </div>
+
+                <div id="progress-container" class="progress-container" style="display:none;">
+                    <div class="progress-bar">
+                        <div id="progress-fill" class="progress-fill"></div>
+                    </div>
+                    <p id="progress-text" class="progress-text"></p>
+                </div>
+
+                <div id="upload-result" class="result" style="display:none;"></div>
+            </div>
+        </div>
+
+        <!-- Webhooks Tab -->
+        <div id="webhooks-tab" class="tab-content">
+            <div class="toolbar">
+                <h2>Webhook Management</h2>
+                <button class="btn btn-primary" onclick="openWebhookModal()">+ New Webhook</button>
+            </div>
+
+            <div class="table-container">
+                <table id="webhooks-table">
+                    <thead>
+                        <tr>
+                            <th>URL</th>
+                            <th>Event Type</th>
+                            <th>Enabled</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="webhooks-tbody">
+                        <tr><td colspan="4" class="loading">Loading...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Product Modal -->
+    <div id="product-modal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeProductModal()">&times;</span>
+            <h2 id="modal-title">New Product</h2>
+            <form id="product-form" onsubmit="saveProduct(event)">
+                <input type="hidden" id="product-id">
+
+                <label for="sku">SKU *</label>
+                <input type="text" id="sku" required>
+
+                <label for="name">Name *</label>
+                <input type="text" id="name" required>
+
+                <label for="description">Description</label>
+                <textarea id="description" rows="3"></textarea>
+
+                <label>
+                    <input type="checkbox" id="active" checked> Active
+                </label>
+
+                <div class="modal-actions">
+                    <button type="button" class="btn" onclick="closeProductModal()">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Save</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Webhook Modal -->
+    <div id="webhook-modal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeWebhookModal()">&times;</span>
+            <h2 id="webhook-modal-title">New Webhook</h2>
+            <form id="webhook-form" onsubmit="saveWebhook(event)">
+                <input type="hidden" id="webhook-id">
+
+                <label for="webhook-url">URL *</label>
+                <input type="url" id="webhook-url" required placeholder="https://example.com/webhook">
+
+                <label for="event-type">Event Type *</label>
+                <select id="event-type" required>
+                    <option value="product.created">product.created</option>
+                    <option value="product.updated">product.updated</option>
+                    <option value="product.deleted">product.deleted</option>
+                    <option value="import.started">import.started</option>
+                    <option value="import.completed">import.completed</option>
+                    <option value="import.failed">import.failed</option>
+                </select>
+
+                <label>
+                    <input type="checkbox" id="webhook-enabled" checked> Enabled
+                </label>
+
+                <div class="modal-actions">
+                    <button type="button" class="btn" onclick="closeWebhookModal()">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Save</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Toast Notification -->
+    <div id="toast" class="toast"></div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,83 @@
+"""Celery tasks for CSV import processing."""
+from supabase import create_client
+
+from app.config import get_settings
+from app.database import SessionLocal
+from app.models.upload_job import UploadJob
+from app.services.csv_processor import count_csv_rows, process_csv_content
+from app.tasks.celery_app import celery_app
+
+settings = get_settings()
+
+
+@celery_app.task(bind=True)
+def process_csv_import(self, job_id: str, storage_path: str) -> dict:
+    """
+    Process CSV from Supabase Storage in background.
+    Can take 3-5 minutes for 500K rows.
+    This runs in Celery worker, NOT in web request context.
+
+    Args:
+        self: Celery task instance
+        job_id: Upload job ID
+        storage_path: Path to CSV file in Supabase Storage
+
+    Returns:
+        Dict with job status and counts
+    """
+    db = SessionLocal()
+    supabase = create_client(settings.supabase_url, settings.supabase_service_role_key)
+
+    try:
+        # Update status to processing
+        job = db.query(UploadJob).filter(UploadJob.id == job_id).first()
+        if not job:
+            raise ValueError(f"Job {job_id} not found")
+
+        job.status = "processing"
+        db.commit()
+
+        # Download CSV from Supabase Storage
+        csv_data = supabase.storage.from_("file").download(storage_path)
+        csv_content = csv_data.decode("utf-8")
+
+        # Count total rows for progress tracking
+        total_rows = count_csv_rows(csv_content)
+        job.total_rows = total_rows
+        db.commit()
+
+        # Process CSV in batches
+        process_csv_content(csv_content, job_id, db)
+
+        # Mark complete
+        job = db.query(UploadJob).filter(UploadJob.id == job_id).first()
+        job.status = "completed"
+        db.commit()
+
+        return {
+            "status": "completed",
+            "job_id": job_id,
+            "total_rows": job.total_rows,
+            "created": job.created_rows,
+            "updated": job.updated_rows,
+        }
+
+    except Exception as e:
+        # Mark failed
+        job = db.query(UploadJob).filter(UploadJob.id == job_id).first()
+        if job:
+            job.status = "failed"
+            job.error_message = str(e)
+            db.commit()
+
+        # Publish failure to Redis for SSE
+        from app.services.csv_processor import publish_progress
+
+        publish_progress(job_id, 0, 0, 0, 0, "failed")
+
+        raise
+
+    finally:
+        db.close()
+        # Optional: Delete file from storage after processing
+        # supabase.storage.from_("file").remove([storage_path])
