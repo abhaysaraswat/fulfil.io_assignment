@@ -1,13 +1,9 @@
 """CSV upload API endpoints."""
-import asyncio
-import json
 import logging
 import uuid
 from pathlib import Path
 
-import redis
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
-from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
@@ -44,61 +40,6 @@ async def get_upload_status(job_id: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Job not found")
 
     return job
-
-
-@router.get("/{job_id}/stream")
-async def stream_progress(job_id: str, db: Session = Depends(get_db)):
-    """
-    Server-Sent Events (SSE) endpoint for real-time progress streaming.
-
-    This endpoint maintains an open connection and streams progress updates
-    to the client in real-time as the CSV file is being processed.
-    Uses async Redis operations to avoid blocking other requests.
-    """
-    # Verify job exists
-    job = db.query(UploadJob).filter(UploadJob.id == job_id).first()
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
-
-    async def event_generator():
-        """Generate SSE events from Redis pub/sub with async operations."""
-        redis_client = redis.Redis.from_url(settings.redis_url, decode_responses=True)
-        pubsub = redis_client.pubsub()
-        pubsub.subscribe(f"upload:{job_id}")
-
-        try:
-            while True:
-                # Non-blocking message check with timeout
-                message = pubsub.get_message(timeout=1.0)
-
-                if message and message["type"] == "message":
-                    data = json.loads(message["data"])
-                    yield f"data: {json.dumps(data)}\n\n"
-
-                    # Close connection when job is done
-                    if data.get("status") in ["completed", "failed"]:
-                        break
-
-                # Allow other async operations to run
-                await asyncio.sleep(0.1)
-
-        except Exception as e:
-            # Log error but don't crash the stream
-            logger.warning(f"SSE stream error for job {job_id}: {str(e)}")
-            yield f"data: {json.dumps({'status': 'error', 'error': 'Stream error'})}\n\n"
-
-        finally:
-            pubsub.unsubscribe(f"upload:{job_id}")
-            redis_client.close()
-
-    return StreamingResponse(
-        event_generator(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-        }
-    )
 
 
 @router.post("", response_model=UploadResponse)

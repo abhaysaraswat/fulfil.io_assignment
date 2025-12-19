@@ -1,10 +1,8 @@
 """CSV processing service for batch import with UPSERT."""
 import csv
-import json
 import logging
 from io import StringIO
 
-import redis
 from sqlalchemy import func
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
@@ -71,7 +69,28 @@ def process_csv_content(csv_content: str, job_id: str, db: Session) -> None:
             logger.info(f"✅ Batch processed: created={created_count}, updated={updated_count}")
 
             update_progress(job_id, total, created, updated, db)
-            publish_progress(job_id, total, job.total_rows, created, updated, "processing")
+
+            # Send progress webhook
+            from app.services.webhook_service import trigger_webhooks
+            import asyncio
+            asyncio.run(
+                trigger_webhooks(
+                    "import.progress",
+                    {
+                        "event": "import.progress",
+                        "data": {
+                            "job_id": job_id,
+                            "processed": total,
+                            "total": job.total_rows,
+                            "created": created,
+                            "updated": updated,
+                            "progress_percent": round((total / job.total_rows) * 100, 1)
+                        }
+                    },
+                    db
+                )
+            )
+
             logger.info(f"📊 Progress updated: {total}/{job.total_rows} rows processed")
             batch = []
 
@@ -87,7 +106,6 @@ def process_csv_content(csv_content: str, job_id: str, db: Session) -> None:
 
     # Final progress update
     logger.info(f"🏁 CSV processing completed for job {job_id}: total={total}, created={created}, updated={updated}")
-    publish_progress(job_id, total, total, created, updated, "completed")
 
 
 def upsert_batch(products: list, db: Session) -> tuple[int, int]:
@@ -171,39 +189,6 @@ def update_progress(
         job.created_rows = created
         job.updated_rows = updated
         db.commit()
-
-
-def publish_progress(
-    job_id: str, processed: int, total: int, created: int, updated: int, status: str, error: str = None
-) -> None:
-    """
-    Publish progress to Redis pub/sub for real-time SSE streaming.
-
-    Args:
-        job_id: Upload job ID
-        processed: Number of rows processed
-        total: Total number of rows
-        created: Number of products created
-        updated: Number of products updated
-        status: Current status (processing, completed, failed)
-        error: Error message (for failed status)
-    """
-    try:
-        redis_client = redis.Redis.from_url(settings.redis_url, decode_responses=True)
-        message = {
-            "job_id": job_id,
-            "status": status,
-            "processed": processed,
-            "total": total,
-            "created": created,
-            "updated": updated,
-        }
-        if error:
-            message["error"] = error
-        redis_client.publish(f"upload:{job_id}", json.dumps(message))
-    except Exception as e:
-        # Don't fail the import if Redis is unavailable
-        print(f"Failed to publish progress: {e}")
 
 
 def count_csv_rows(csv_content: str) -> int:

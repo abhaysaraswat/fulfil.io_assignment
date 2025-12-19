@@ -140,12 +140,6 @@ def process_csv_import(self, job_id: str, file_path: str) -> dict:
             db.commit()
             logger.info(f"✅ Job marked as failed in database: {job_id}")
 
-        # Publish failure to Redis for SSE
-        logger.info(f"📡 Publishing failure status to Redis for job {job_id}")
-        from app.services.csv_processor import publish_progress
-        publish_progress(job_id, 0, 0, 0, 0, "failed", str(e))
-        logger.info(f"✅ Failure status with error published to Redis for job {job_id}")
-
         # Trigger import.failed webhook
         logger.info(f"🪝 Triggering import.failed webhook for job {job_id}")
         asyncio.run(

@@ -14,6 +14,7 @@ WEBHOOK_EVENTS = [
     "product.updated",
     "product.deleted",
     "import.started",
+    "import.progress",
     "import.completed",
     "import.failed",
 ]
