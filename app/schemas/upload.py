@@ -35,6 +35,14 @@ class UploadCompleteResponse(BaseModel):
     message: str = "CSV processing started"
 
 
+class UploadResponse(BaseModel):
+    """Response for direct file upload."""
+
+    job_id: str
+    status: str
+    message: str = "File uploaded successfully, processing in background"
+
+
 class UploadJobResponse(BaseModel):
     """Upload job status response."""
 

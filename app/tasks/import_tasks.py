@@ -1,7 +1,7 @@
 """Celery tasks for CSV import processing."""
+import os
 import asyncio
-
-from supabase import create_client
+from pathlib import Path
 
 from app.config import get_settings
 from app.database import SessionLocal
@@ -14,22 +14,21 @@ settings = get_settings()
 
 
 @celery_app.task(bind=True)
-def process_csv_import(self, job_id: str, storage_path: str) -> dict:
+def process_csv_import(self, job_id: str, file_path: str) -> dict:
     """
-    Process CSV from Supabase Storage in background.
+    Process CSV file from local storage in background.
     Can take 3-5 minutes for 500K rows.
     This runs in Celery worker, NOT in web request context.
 
     Args:
         self: Celery task instance
         job_id: Upload job ID
-        storage_path: Path to CSV file in Supabase Storage
+        file_path: Local path to CSV file
 
     Returns:
         Dict with job status and counts
     """
     db = SessionLocal()
-    supabase = create_client(settings.supabase_url, settings.supabase_service_role_key)
 
     try:
         # Update status to processing
@@ -52,9 +51,9 @@ def process_csv_import(self, job_id: str, storage_path: str) -> dict:
             )
         )
 
-        # Download CSV from Supabase Storage
-        csv_data = supabase.storage.from_("file").download(storage_path)
-        csv_content = csv_data.decode("utf-8")
+        # Read CSV from local file (no Supabase needed!)
+        with open(file_path, 'r', encoding='utf-8') as f:
+            csv_content = f.read()
 
         # Count total rows for progress tracking
         total_rows = count_csv_rows(csv_content)
@@ -124,5 +123,9 @@ def process_csv_import(self, job_id: str, storage_path: str) -> dict:
 
     finally:
         db.close()
-        # Optional: Delete file from storage after processing
-        # supabase.storage.from_("file").remove([storage_path])
+        # Clean up temp file after processing
+        try:
+            if os.path.exists(file_path):
+                os.remove(file_path)
+        except Exception:
+            pass  # Ignore cleanup errors

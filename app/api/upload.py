@@ -1,22 +1,19 @@
 """CSV upload API endpoints."""
 import json
 import uuid
+from pathlib import Path
 
 import redis
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
-from supabase import create_client
 
 from app.config import get_settings
 from app.database import get_db
 from app.models.upload_job import UploadJob
 from app.schemas.upload import (
-    UploadCompleteRequest,
-    UploadCompleteResponse,
-    UploadInitiateRequest,
-    UploadInitiateResponse,
     UploadJobResponse,
+    UploadResponse,
 )
 from app.tasks.import_tasks import process_csv_import
 
@@ -24,74 +21,12 @@ router = APIRouter(prefix="/api/upload", tags=["upload"])
 
 settings = get_settings()
 
-
-@router.post("/initiate", response_model=UploadInitiateResponse)
-async def initiate_upload(
-    request: UploadInitiateRequest, db: Session = Depends(get_db)
-):
-    """
-    Create signed upload URL for direct frontend → Supabase upload.
-    Returns immediately with signed URL and job_id (< 1 second).
-
-    This endpoint creates a new upload job and generates a signed URL
-    that the frontend can use to upload the CSV file directly to Supabase Storage,
-    bypassing the backend to avoid timeout issues.
-    """
-    # 1. Create job record
-    job_id = str(uuid.uuid4())
-    job = UploadJob(id=job_id, filename=request.filename, status="pending")
-    db.add(job)
-    db.commit()
-
-    # 2. Create signed upload URL (valid for 2 hours)
-    supabase = create_client(settings.supabase_url, settings.supabase_service_role_key)
-    storage_path = f"uploads/{job_id}.csv"
-
-    try:
-        signed_url_response = supabase.storage.from_("file").create_signed_upload_url(
-            storage_path
-        )
-
-        # 3. Return signed URL and job_id (total time: < 1 second!)
-        return UploadInitiateResponse(
-            job_id=job_id,
-            signed_url=signed_url_response["signedURL"],
-            path=signed_url_response["path"],
-        )
-    except Exception as e:
-        # Clean up job if signed URL creation fails
-        db.delete(job)
-        db.commit()
-        raise HTTPException(
-            status_code=500, detail=f"Failed to create signed URL: {str(e)}"
-        )
+# Create temp directory for file uploads
+TEMP_DIR = Path("/tmp/uploads")
+TEMP_DIR.mkdir(exist_ok=True)
 
 
-@router.post("/complete", response_model=UploadCompleteResponse)
-async def complete_upload(
-    request: UploadCompleteRequest, db: Session = Depends(get_db)
-):
-    """
-    Trigger background processing after frontend completes upload.
-    Returns immediately (< 1 second).
 
-    This endpoint is called by the frontend after successfully uploading
-    the CSV to Supabase Storage. It triggers the Celery background task
-    to process the CSV file.
-    """
-    # Verify job exists
-    job = db.query(UploadJob).filter(UploadJob.id == request.job_id).first()
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
-
-    # Update status and trigger Celery task
-    job.status = "uploaded"
-    db.commit()
-
-    storage_path = f"uploads/{request.job_id}.csv"
-    process_csv_import.delay(request.job_id, storage_path)
-
-    return UploadCompleteResponse(job_id=request.job_id, status="processing")
 
 
 @router.get("/{job_id}", response_model=UploadJobResponse)
@@ -142,3 +77,77 @@ async def stream_progress(job_id: str, db: Session = Depends(get_db)):
             redis_client.close()
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+
+@router.post("", response_model=UploadResponse)
+async def upload_csv(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db)
+):
+    """
+    Direct CSV file upload endpoint.
+    Handles large files efficiently by streaming and background processing.
+
+    This endpoint:
+    1. Accepts file upload immediately (< 30 seconds)
+    2. Saves file to temporary storage
+    3. Creates upload job record
+    4. Triggers background processing with Celery
+    5. Returns job_id for progress tracking
+
+    Perfect for handling 500k+ record CSV files on platforms with timeout limits.
+    """
+    # Validate file type
+    if not file.filename.lower().endswith('.csv'):
+        raise HTTPException(status_code=400, detail="Only CSV files are allowed")
+
+    # Validate file size (max 100MB to prevent abuse)
+    file_size = 0
+    content = await file.read(1024)  # Read first 1KB
+    while content:
+        file_size += len(content)
+        if file_size > 100 * 1024 * 1024:  # 100MB limit
+            raise HTTPException(status_code=413, detail="File too large (max 100MB)")
+        content = await file.read(1024)
+
+    # Reset file pointer
+    await file.seek(0)
+
+    # Create job record
+    job_id = str(uuid.uuid4())
+    job = UploadJob(id=job_id, filename=file.filename, status="uploading")
+    db.add(job)
+    db.commit()
+
+    try:
+        # Save file to temp storage
+        temp_file_path = TEMP_DIR / f"{job_id}.csv"
+        with open(temp_file_path, "wb") as buffer:
+            # Stream file in chunks to handle large files
+            content = await file.read(8192)  # 8KB chunks
+            while content:
+                buffer.write(content)
+                content = await file.read(8192)
+
+        # Update job status and trigger background processing
+        job.status = "uploaded"
+        db.commit()
+
+        # Process CSV in background (will take 3-5 minutes for 500k records)
+        process_csv_import.delay(job_id, str(temp_file_path))
+
+        return UploadResponse(
+            job_id=job_id,
+            status="processing",
+            message="File uploaded successfully, processing in background"
+        )
+
+    except Exception as e:
+        # Clean up on error
+        db.delete(job)
+        db.commit()
+        # Clean up temp file if it exists
+        temp_file_path = TEMP_DIR / f"{job_id}.csv"
+        if temp_file_path.exists():
+            temp_file_path.unlink()
+        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")

@@ -230,40 +230,29 @@ async function uploadCSV() {
     resultDiv.style.display = 'none';
 
     try {
-        // Step 1: Initiate upload
-        updateProgress(0, 'Initializing upload...');
-        const initResponse = await fetch('/api/upload/initiate', {
+        // Direct upload with FormData
+        updateProgress(10, 'Uploading file...');
+
+        const formData = new FormData();
+        formData.append('file', selectedFile);
+
+        const uploadResponse = await fetch('/api/upload', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ filename: selectedFile.name })
+            body: formData
         });
 
-        if (!initResponse.ok) throw new Error('Failed to initiate upload');
+        if (!uploadResponse.ok) {
+            const errorData = await uploadResponse.json();
+            throw new Error(errorData.detail || 'Failed to upload file');
+        }
 
-        const { job_id, signed_url } = await initResponse.json();
+        const uploadResult = await uploadResponse.json();
+        const jobId = uploadResult.job_id;
 
-        // Step 2: Upload to Supabase
-        updateProgress(10, 'Uploading file to storage...');
-        const uploadResponse = await fetch(signed_url, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'text/csv' },
-            body: selectedFile
-        });
+        updateProgress(30, 'File uploaded, starting processing...');
 
-        if (!uploadResponse.ok) throw new Error('Failed to upload file');
-
-        // Step 3: Trigger processing
-        updateProgress(30, 'Starting CSV processing...');
-        const completeResponse = await fetch('/api/upload/complete', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ job_id })
-        });
-
-        if (!completeResponse.ok) throw new Error('Failed to start processing');
-
-        // Step 4: Track progress via SSE
-        trackUploadProgress(job_id);
+        // Track progress via SSE (starts automatically after upload)
+        trackUploadProgress(jobId);
 
     } catch (error) {
         uploadBtn.disabled = false;
