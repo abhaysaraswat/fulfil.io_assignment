@@ -9,8 +9,15 @@
 <body>
     <div class="container">
         <header>
-            <h1>Product Importer</h1>
-            <p class="subtitle">Manage products and import from CSV files</p>
+            <div class="header-content">
+                <img src="https://gpgscufyuqcjeafundva.supabase.co/storage/v1/object/public/file/fulfil2.svg"
+                     alt="Fulfil Logo"
+                     class="logo">
+                <div>
+                    <h1>Product Importer</h1>
+                    <p class="subtitle">Manage products and import from CSV files</p>
+                </div>
+            </div>
         </header>
 
         <nav class="tabs">
@@ -163,6 +170,18 @@
                     <button type="submit" class="btn btn-primary">Save</button>
                 </div>
             </form>
+        </div>
+    </div>
+
+    <!-- Custom Confirmation Modal -->
+    <div id="confirm-modal" class="modal">
+        <div class="modal-content confirm-modal-content">
+            <h2 id="confirm-title">Confirm Action</h2>
+            <p id="confirm-message">Are you sure?</p>
+            <div class="modal-actions">
+                <button type="button" class="btn" onclick="closeConfirmModal(false)">Cancel</button>
+                <button type="button" class="btn btn-danger" onclick="closeConfirmModal(true)">Delete</button>
+            </div>
         </div>
     </div>
 

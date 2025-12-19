@@ -38,7 +38,7 @@ def list_products(
     - sku: Filter by exact SKU (case-insensitive)
     - name: Filter by name (partial match, case-insensitive)
     - active: Filter by active status
-    - search: Search in both SKU and name
+    - search: Search in SKU, name, and description
     """
     query = db.query(Product)
 
@@ -55,6 +55,7 @@ def list_products(
             or_(
                 Product.sku.ilike(search_term),
                 Product.name.ilike(search_term),
+                Product.description.ilike(search_term),
             )
         )
 

@@ -180,7 +180,11 @@ async function saveProduct(event) {
 }
 
 async function deleteProduct(id, sku) {
-    if (!confirm(`Are you sure you want to delete product "${sku}"?`)) return;
+    const confirmed = await showConfirm(
+        'Delete Product',
+        `Are you sure you want to delete product "${sku}"?`
+    );
+    if (!confirmed) return;
 
     try {
         const response = await fetch(`/api/products/${id}`, { method: 'DELETE' });
@@ -195,8 +199,17 @@ async function deleteProduct(id, sku) {
 }
 
 async function confirmBulkDelete() {
-    if (!confirm('Are you sure you want to delete ALL products? This cannot be undone!')) return;
-    if (!confirm('This will permanently delete all products. Are you absolutely sure?')) return;
+    const confirmed = await showConfirm(
+        'Delete All Products',
+        'Are you sure you want to delete ALL products? This cannot be undone!'
+    );
+    if (!confirmed) return;
+
+    const doubleConfirm = await showConfirm(
+        'Final Confirmation',
+        'This will permanently delete all products. Are you absolutely sure?'
+    );
+    if (!doubleConfirm) return;
 
     try {
         const response = await fetch('/api/products/bulk/all', { method: 'DELETE' });
@@ -467,6 +480,24 @@ function showToast(message, type = 'success') {
     setTimeout(() => {
         toast.classList.remove('show');
     }, 3000);
+}
+
+function showConfirm(title, message) {
+    return new Promise((resolve) => {
+        document.getElementById('confirm-title').textContent = title;
+        document.getElementById('confirm-message').textContent = message;
+        document.getElementById('confirm-modal').classList.add('show');
+
+        window.confirmResolve = resolve;
+    });
+}
+
+function closeConfirmModal(confirmed) {
+    document.getElementById('confirm-modal').classList.remove('show');
+    if (window.confirmResolve) {
+        window.confirmResolve(confirmed);
+        window.confirmResolve = null;
+    }
 }
 
 function escapeHtml(text) {
