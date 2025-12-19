@@ -282,8 +282,26 @@ async function pollUploadProgress(jobId) {
                 loadProducts(1);
             } else if (data.status === 'failed') {
                 clearInterval(interval);
-                showUploadResult(false, `Import failed`);
+
+                // Get error message from backend (or default)
+                const errorMsg = data.error_message || 'Unknown error occurred';
+
+                // CRITICAL: Hide progress bar explicitly
+                document.getElementById('progress-container').style.display = 'none';
+
+                // CRITICAL: Show error result with explicit DOM manipulation
+                const resultDiv = document.getElementById('upload-result');
+                resultDiv.className = 'result error';
+                resultDiv.textContent = `Import failed: ${errorMsg}`;
+                resultDiv.style.display = 'block';
+
+                // Re-enable upload button for retry
                 document.getElementById('upload-btn').disabled = false;
+
+                // Reset file input to allow retry
+                document.getElementById('csv-file').value = '';
+                selectedFile = null;
+                document.getElementById('file-name').textContent = 'Choose CSV file...';
             } else if (data.total_rows > 0) {
                 // Map processing to 30-100% range (upload already used 0-30%)
                 const percent = 30 + Math.round((data.processed_rows / data.total_rows) * 70);
