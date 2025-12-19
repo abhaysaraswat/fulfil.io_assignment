@@ -1,4 +1,6 @@
 """Celery application configuration."""
+import ssl
+
 from celery import Celery
 
 from app.config import get_settings
@@ -19,4 +21,11 @@ celery_app.conf.update(
     result_serializer="json",
     timezone="UTC",
     enable_utc=True,
+    # SSL support for Upstash Redis (TLS required)
+    broker_use_ssl={
+        'ssl_cert_reqs': ssl.CERT_NONE,
+    },
+    redis_backend_use_ssl={
+        'ssl_cert_reqs': ssl.CERT_NONE,
+    },
 )
