@@ -1,10 +1,13 @@
 """Celery tasks for CSV import processing."""
+import asyncio
+
 from supabase import create_client
 
 from app.config import get_settings
 from app.database import SessionLocal
 from app.models.upload_job import UploadJob
 from app.services.csv_processor import count_csv_rows, process_csv_content
+from app.services.webhook_service import trigger_webhooks
 from app.tasks.celery_app import celery_app
 
 settings = get_settings()
@@ -37,6 +40,18 @@ def process_csv_import(self, job_id: str, storage_path: str) -> dict:
         job.status = "processing"
         db.commit()
 
+        # Trigger import.started webhook
+        asyncio.run(
+            trigger_webhooks(
+                "import.started",
+                {
+                    "event": "import.started",
+                    "data": {"job_id": job_id, "filename": job.filename},
+                },
+                db,
+            )
+        )
+
         # Download CSV from Supabase Storage
         csv_data = supabase.storage.from_("file").download(storage_path)
         csv_content = csv_data.decode("utf-8")
@@ -53,6 +68,24 @@ def process_csv_import(self, job_id: str, storage_path: str) -> dict:
         job = db.query(UploadJob).filter(UploadJob.id == job_id).first()
         job.status = "completed"
         db.commit()
+
+        # Trigger import.completed webhook
+        asyncio.run(
+            trigger_webhooks(
+                "import.completed",
+                {
+                    "event": "import.completed",
+                    "data": {
+                        "job_id": job_id,
+                        "filename": job.filename,
+                        "total_rows": job.total_rows,
+                        "created": job.created_rows,
+                        "updated": job.updated_rows,
+                    },
+                },
+                db,
+            )
+        )
 
         return {
             "status": "completed",
@@ -74,6 +107,18 @@ def process_csv_import(self, job_id: str, storage_path: str) -> dict:
         from app.services.csv_processor import publish_progress
 
         publish_progress(job_id, 0, 0, 0, 0, "failed")
+
+        # Trigger import.failed webhook
+        asyncio.run(
+            trigger_webhooks(
+                "import.failed",
+                {
+                    "event": "import.failed",
+                    "data": {"job_id": job_id, "error": str(e)},
+                },
+                db,
+            )
+        )
 
         raise
 

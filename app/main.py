@@ -7,8 +7,9 @@ from fastapi.staticfiles import StaticFiles
 
 from app.api.products import router as products_router
 from app.api.upload import router as upload_router
+from app.api.webhooks import router as webhooks_router
 from app.database import engine, Base
-from app.models import Product, UploadJob  # noqa: F401 - Import to register models
+from app.models import Product, UploadJob, Webhook  # noqa: F401 - Import to register models
 
 
 @asynccontextmanager
@@ -40,6 +41,7 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 # Include routers
 app.include_router(products_router)
 app.include_router(upload_router)
+app.include_router(webhooks_router)
 
 
 @app.get("/health")

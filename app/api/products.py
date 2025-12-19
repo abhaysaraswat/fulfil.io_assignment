@@ -14,6 +14,7 @@ from app.schemas.product import (
     ProductResponse,
     ProductUpdate,
 )
+from app.services.webhook_service import trigger_webhooks
 
 router = APIRouter(prefix="/api/products", tags=["products"])
 
@@ -77,7 +78,7 @@ def list_products(
 
 
 @router.post("", response_model=ProductResponse, status_code=201)
-def create_product(product: ProductCreate, db: Session = Depends(get_db)):
+async def create_product(product: ProductCreate, db: Session = Depends(get_db)):
     """
     Create a new product.
 
@@ -106,6 +107,22 @@ def create_product(product: ProductCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(db_product)
 
+    # Trigger webhooks
+    await trigger_webhooks(
+        "product.created",
+        {
+            "event": "product.created",
+            "data": {
+                "id": db_product.id,
+                "sku": db_product.sku,
+                "name": db_product.name,
+                "description": db_product.description,
+                "active": db_product.active,
+            },
+        },
+        db,
+    )
+
     return db_product
 
 
@@ -120,7 +137,7 @@ def get_product(product_id: int, db: Session = Depends(get_db)):
 
 
 @router.put("/{product_id}", response_model=ProductResponse)
-def update_product(
+async def update_product(
     product_id: int, product_update: ProductUpdate, db: Session = Depends(get_db)
 ):
     """
@@ -160,18 +177,48 @@ def update_product(
     db.commit()
     db.refresh(db_product)
 
+    # Trigger webhooks
+    await trigger_webhooks(
+        "product.updated",
+        {
+            "event": "product.updated",
+            "data": {
+                "id": db_product.id,
+                "sku": db_product.sku,
+                "name": db_product.name,
+                "description": db_product.description,
+                "active": db_product.active,
+            },
+        },
+        db,
+    )
+
     return db_product
 
 
 @router.delete("/{product_id}", status_code=204)
-def delete_product(product_id: int, db: Session = Depends(get_db)):
+async def delete_product(product_id: int, db: Session = Depends(get_db)):
     """Delete a single product."""
     product = db.query(Product).filter(Product.id == product_id).first()
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
 
+    # Store product data before deletion for webhook
+    product_data = {
+        "id": product.id,
+        "sku": product.sku,
+        "name": product.name,
+    }
+
     db.delete(product)
     db.commit()
+
+    # Trigger webhooks
+    await trigger_webhooks(
+        "product.deleted",
+        {"event": "product.deleted", "data": product_data},
+        db,
+    )
 
     return None
 
